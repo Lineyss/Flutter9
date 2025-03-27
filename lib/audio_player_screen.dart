@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:hive/hive.dart';
@@ -16,25 +18,41 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   bool _isLoading = false;
+  StreamSubscription? _playerStateSubscription;
+  StreamSubscription? _durationSubscription;
+  StreamSubscription? _positionSubscription;
 
   @override
   void initState() {
     super.initState();
-    _audioPlayer.onPlayerStateChanged.listen((state) {
-      setState(() => _playerState = state);
+    _playerStateSubscription =
+        _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() => _playerState = state);
+      }
     });
-    
-    _audioPlayer.onDurationChanged.listen((duration) {
-      setState(() => _duration = duration);
+
+    _durationSubscription = _audioPlayer.onDurationChanged.listen((duration) {
+      if (mounted) {
+        setState(() => _duration = duration);
+      }
     });
-    
-    _audioPlayer.onPositionChanged.listen((position) {
-      setState(() => _position = position);
+
+    _positionSubscription = _audioPlayer.onPositionChanged.listen((position) {
+      if (mounted) {
+        setState(() => _position = position);
+      }
     });
+
+    // Установка тестового URL для проверки
+    _urlController.text = 'https://www2.cs.uic.edu/~i101/SoundFiles/taunt.wav';
   }
 
   @override
   void dispose() {
+    _playerStateSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _positionSubscription?.cancel();
     _audioPlayer.dispose();
     _urlController.dispose();
     super.dispose();
@@ -42,14 +60,30 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
 
   Future<void> _playAudio() async {
     final url = _urlController.text.trim();
-    if (url.isEmpty) return;
+    if (url.isEmpty || !Uri.parse(url).isAbsolute) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Введите корректный URL')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
-      await _audioPlayer.play(UrlSource(url));
+      await _audioPlayer.stop(); // Остановить текущее воспроизведение
+
+      if (kIsWeb) {
+        // Для веба используем альтернативный подход
+        await _audioPlayer.setSourceUrl(url);
+        await _audioPlayer.resume();
+      } else {
+        await _audioPlayer.play(UrlSource(url));
+      }
     } catch (e) {
+      print('Ошибка воспроизведения: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка воспроизведения: $e')),
+        SnackBar(
+            content:
+                Text('Не удалось воспроизвести аудио. Попробуйте другой URL')),
       );
     } finally {
       setState(() => _isLoading = false);
@@ -57,19 +91,43 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   Future<void> _pauseAudio() async {
-    await _audioPlayer.pause();
+    try {
+      await _audioPlayer.pause();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при паузе: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _stopAudio() async {
-    await _audioPlayer.stop();
+    try {
+      await _audioPlayer.stop();
+      if (mounted) {
+        setState(() {
+          _position = Duration.zero;
+          _playerState = PlayerState.stopped;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка при остановке: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _saveAudio() async {
     final url = _urlController.text.trim();
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Введите URL аудио')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Введите URL аудио')),
+        );
+      }
       return;
     }
 
@@ -82,9 +140,11 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
     Hive.box<MediaItem>('mediaBox').add(mediaItem);
     _urlController.clear();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Аудио сохранено')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Аудио сохранено')),
+      );
+    }
   }
 
   @override
@@ -108,15 +168,18 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
               children: [
                 IconButton(
                   icon: Icon(Icons.play_arrow),
-                  onPressed: _playerState == PlayerState.playing ? null : _playAudio,
+                  onPressed:
+                      _playerState == PlayerState.playing ? null : _playAudio,
                 ),
                 IconButton(
                   icon: Icon(Icons.pause),
-                  onPressed: _playerState != PlayerState.playing ? null : _pauseAudio,
+                  onPressed:
+                      _playerState != PlayerState.playing ? null : _pauseAudio,
                 ),
                 IconButton(
                   icon: Icon(Icons.stop),
-                  onPressed: _playerState == PlayerState.stopped ? null : _stopAudio,
+                  onPressed:
+                      _playerState == PlayerState.stopped ? null : _stopAudio,
                 ),
               ],
             ),
@@ -127,9 +190,15 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                   Slider(
                     min: 0,
                     max: _duration.inSeconds.toDouble(),
-                    value: _position.inSeconds.toDouble(),
+                    value: _position.inSeconds
+                        .toDouble()
+                        .clamp(0, _duration.inSeconds.toDouble()),
                     onChanged: (value) async {
-                      await _audioPlayer.seek(Duration(seconds: value.toInt()));
+                      final newPosition = Duration(seconds: value.toInt());
+                      await _audioPlayer.seek(newPosition);
+                      if (mounted) {
+                        setState(() => _position = newPosition);
+                      }
                     },
                   ),
                   Text(
@@ -152,7 +221,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                       .toList()
                       .reversed
                       .toList();
-                  
+
                   if (audioItems.isEmpty) {
                     return Center(child: Text('Нет сохраненных аудио'));
                   }

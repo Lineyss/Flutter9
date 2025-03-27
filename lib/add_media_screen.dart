@@ -16,7 +16,7 @@ class _AddMediaScreenState extends State<AddMediaScreen> {
 
   Future<void> _getCurrentLocation() async {
     setState(() => _isLoadingLocation = true);
-    
+
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -108,8 +108,11 @@ class _AddMediaScreenState extends State<AddMediaScreen> {
                 return DropdownMenuItem<MediaType>(
                   value: type,
                   child: Text(
-                    type == MediaType.image ? 'Изображение' : 
-                    type == MediaType.video ? 'Видео' : 'Аудио',
+                    type == MediaType.image
+                        ? 'Изображение'
+                        : type == MediaType.video
+                            ? 'Видео'
+                            : 'Аудио',
                   ),
                 );
               }).toList(),
@@ -129,8 +132,7 @@ class _AddMediaScreenState extends State<AddMediaScreen> {
                       : Text('Добавить геолокацию'),
                 ),
                 SizedBox(width: 8),
-                if (_currentPosition != null)
-                  Text('Местоположение получено'),
+                if (_currentPosition != null) Text('Местоположение получено'),
               ],
             ),
             SizedBox(height: 16),

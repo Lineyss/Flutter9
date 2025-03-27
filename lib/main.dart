@@ -1,19 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
 import 'package:media_gallery/add_media_screen.dart';
 import 'package:media_gallery/audio_player_screen.dart';
 import 'package:media_gallery/media_feed_screen.dart';
-import 'package:video_player/video_player.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
- 
+
+class MediaTypeAdapter extends TypeAdapter<MediaType> {
+  @override
+  final int typeId = 1;
+
+  @override
+  MediaType read(BinaryReader reader) {
+    final index = reader.readByte();
+    return MediaType.values[index];
+  }
+
+  @override
+  void write(BinaryWriter writer, MediaType obj) {
+    writer.writeByte(obj.index);
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
   Hive.registerAdapter(MediaItemAdapter());
+  Hive.registerAdapter(MediaTypeAdapter());
   await Hive.openBox<MediaItem>('mediaBox');
   runApp(MyApp());
 }
